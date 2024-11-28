@@ -1,0 +1,72 @@
+version: "3"
+
+services:
+  database:
+    container_name: database
+    image: postgres:14.8-alpine3.18
+    environment:
+      POSTGRES_DB: docker_db
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_PASSWORD: qwe
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal_network
+    ports:
+      - 5432:5432
+
+  pgadmin:
+    container_name: pgadmin
+    image: dpage/pgadmin4
+    depends_on:
+      - database
+    ports:
+      - "5555:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: pgadmin4
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    networks:
+      - internal_network
+    volumes:
+      - ./docker.pgadmin.servers.json:/pgadmin4/servers.json
+
+  migrations:
+    build:
+      context: ./apps/db
+      dockerfile: Dockerfile.migration
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - internal_network
+    environment:
+      DB_URL: postgres://postgres:qwe@database:5432/docker_db
+
+  app:
+    container_name: app
+    image: tsarev-impulse/app
+    ports:
+      - 80:3000
+    build:
+      context: .
+      dockerfile: ./apps/app/Dockerfile
+    env_file:
+      - ./apps/app/.docker.local.env
+    init: true
+    tty: true
+    networks:
+      - internal_network
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+
+networks:
+  internal_network:
+    driver: bridge
